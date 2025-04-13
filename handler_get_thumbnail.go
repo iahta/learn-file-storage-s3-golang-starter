@@ -1,5 +1,10 @@
 package main
 
+//no longer needed, since the thumbnail url has all the data we need now, map[uuid.UUID]thumbnail{} as deleted
+/*
+
+package main
+
 import (
 	"fmt"
 	"net/http"
@@ -30,3 +35,5 @@ func (cfg *apiConfig) handlerThumbnailGet(w http.ResponseWriter, r *http.Request
 		return
 	}
 }
+
+*/

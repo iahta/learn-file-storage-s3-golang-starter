@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -60,16 +61,13 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusUnauthorized, "User is not owner of Video", err)
 		return
 	}
-	newThumbnail := thumbnail{
-		data:      fileBytes,
-		mediaType: fileType,
-	}
-	//verify video is users, then store in in global map, video id as key
-	videoThumbnails[video.ID] = newThumbnail
-	//update video's metadata with url that contatins video id
-	thumbnailURL := "http://localhost:" + cfg.port + "/api/thumbnails/" + videoIDString
-	video.ThumbnailURL = &thumbnailURL
-
+	//convret bytes to string
+	fileBytesStr := base64.StdEncoding.EncodeToString(fileBytes)
+	//store filestring in dataurl
+	dataURL := "data:" + fileType + ";base64," + fileBytesStr
+	//pointer to string in video db.url
+	video.ThumbnailURL = &dataURL
+	//update db with video url string
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to update video", err)
