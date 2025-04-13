@@ -120,16 +120,20 @@ function setUploadButtonState(uploading, selector) {
 }
 
 async function uploadThumbnail(videoID) {
+  //get thumbnail from input
   const thumbnailFile = document.getElementById('thumbnail').files[0];
   if (!thumbnailFile) return;
-
+  //create and populate form ndata, js object designed for sending form data matches the key in back end "thumbnail"
   const formData = new FormData();
   formData.append('thumbnail', thumbnailFile);
 
   uploadBtnSelector = 'upload-thumbnail-btn';
+  //set upload button to loading state
   setUploadButtonState(true, uploadBtnSelector);
 
   try {
+    //send the http request
+    //makes a POST request to /api/thumbnail_upload/${videoID} 
     const res = await fetch(`/api/thumbnail_upload/${videoID}`, {
       method: 'POST',
       headers: {
