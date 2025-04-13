@@ -1,10 +1,11 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -46,12 +47,9 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer file.Close()
-	fileType := header.Header.Get("Content-Type")
-	fileBytes, err := io.ReadAll(file)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Unalbe to read file data", err)
-		return
-	}
+	fileContent := header.Header.Get("Content-Type")
+	fileType := stripContentType(fileContent)
+
 	video, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to retrieve video data", err)
@@ -61,12 +59,24 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusUnauthorized, "User is not owner of Video", err)
 		return
 	}
-	//convret bytes to string
-	fileBytesStr := base64.StdEncoding.EncodeToString(fileBytes)
-	//store filestring in dataurl
-	dataURL := "data:" + fileType + ";base64," + fileBytesStr
-	//pointer to string in video db.url
-	video.ThumbnailURL = &dataURL
+	// /assets/<videoID>.<file_extension>
+	thumbnailFileName := videoIDString + "." + fileType
+	filePath := filepath.Join(cfg.assetsRoot, thumbnailFileName)
+	//copy and save the file to assets
+	newFile, err := os.Create(filePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error creating thumbnail", err)
+		return
+	}
+	_, err = io.Copy(newFile, file)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error copying thumbnail to server", err)
+		return
+	}
+	defer newFile.Close()
+	thumbnailURL := "http://localhost:" + cfg.port + "/assets/" + thumbnailFileName
+	//pointer to  thumbnail string in video db.url
+	video.ThumbnailURL = &thumbnailURL
 	//update db with video url string
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
