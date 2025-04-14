@@ -1,8 +1,10 @@
 package main
 
-import "strings"
+import (
+	"strings"
+)
 
-func stripContentType(content string) string {
+func stripContentTypeImage(content string) string {
 	contentSplit := strings.Split(content, "/")
 	return contentSplit[1]
 }

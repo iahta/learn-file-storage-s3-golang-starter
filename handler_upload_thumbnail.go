@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,7 +51,17 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	defer file.Close()
 	fileContent := header.Header.Get("Content-Type")
-	fileType := stripContentType(fileContent)
+	fileHeader, _, err := mime.ParseMediaType(fileContent)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to parse media type", err)
+		return
+	}
+	if fileHeader != "image/jpeg" && fileHeader != "image/png" {
+		respondWithError(w, http.StatusUnsupportedMediaType, "Images must be jpeg or png", err)
+		return
+	}
+
+	fileType := stripContentTypeImage(fileHeader)
 
 	video, err := cfg.db.GetVideo(videoID)
 	if err != nil {
@@ -59,8 +72,11 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusUnauthorized, "User is not owner of Video", err)
 		return
 	}
-	// /assets/<videoID>.<file_extension>
-	thumbnailFileName := videoIDString + "." + fileType
+	// /assets/<random, byte filled number>.<file_extension>
+	thumbnailByte := make([]byte, 32)
+	rand.Read(thumbnailByte)
+	encodeRawThumbnail := base64.RawURLEncoding.EncodeToString(thumbnailByte)
+	thumbnailFileName := encodeRawThumbnail + "." + fileType
 	filePath := filepath.Join(cfg.assetsRoot, thumbnailFileName)
 	//copy and save the file to assets
 	newFile, err := os.Create(filePath)
