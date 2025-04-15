@@ -1,15 +1,13 @@
 package main
 
 import (
-	"bytes"
-	"crypto/rand"
-	"encoding/base64"
 	"io"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -55,6 +53,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer file.Close()
+
 	//validate video type
 	fileHeader, _, err := mime.ParseMediaType(header.Header.Get("Content-Type"))
 	if err != nil {
@@ -65,64 +64,59 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusUnsupportedMediaType, "Video must be mp4", nil)
 		return
 	}
-	fileType := stripContentTypeVideo(fileHeader)
-	//validate video further by verifying the video bytes for mp4- ftyp
-	buf := make([]byte, 12) // or larger, depending on what you want to inspect
-	_, err = file.Read(buf)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Error reading file header", err)
-		return
-	}
 
-	// Check if the file contains "ftyp" in the expected location
-	if !bytes.Contains(buf, []byte("ftyp")) {
-		respondWithError(w, http.StatusUnsupportedMediaType, "File is not a valid MP4", nil)
-		return
-	}
-
-	//use system default for file path directory, for temporary storage
-	filePath := filepath.Join("", "tubely-upload.mp4")
 	//copy and save the file to temporary file path
-	newFile, err := os.Create(filePath)
+	tempFile, err := os.CreateTemp("", "tubely-upload.mp4")
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error creating temp file", err)
 		return
 	}
+
 	//defer removing temp dir
-	defer os.Remove(filePath)
-	//defer closing temp video
-	defer newFile.Close()
+	defer os.Remove(tempFile.Name())
+	defer tempFile.Close()
+
 	//copy contents from the wire to the temp file
-	_, err = io.Copy(newFile, file)
+	_, err = io.Copy(tempFile, file)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error copying video to server", err)
 		return
 	}
 	//reset the tempfiles file pointer to beginning
-	_, err = newFile.Seek(0, io.SeekStart)
+	_, err = tempFile.Seek(0, io.SeekStart)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error resetting pointer to beginning", err)
 		return
 	}
-	//put object in s3
-	bucketName := "tubely-73439"
-	//random name for key + .filetype
-	videoNameByte := make([]byte, 32)
-	rand.Read(videoNameByte)
-	encodeRawVideoName := base64.RawURLEncoding.EncodeToString(videoNameByte)
-	videoFileName := encodeRawVideoName + "." + fileType
+
+	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error retrieving Aspect Ratio", err)
+		return
+	}
+	videoOrientation := ""
+	if aspectRatio == "16:9" {
+		videoOrientation = "landscape"
+	} else if aspectRatio == "9:16" {
+		videoOrientation = "portrait"
+	} else {
+		videoOrientation = "other"
+	}
+
+	key := getAssetPath(fileHeader)
+	key = filepath.Join(videoOrientation, key)
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
-		Bucket:      &bucketName,
-		Key:         &videoFileName,
-		Body:        newFile,
-		ContentType: &fileHeader,
+		Bucket:      aws.String(cfg.s3Bucket),
+		Key:         aws.String(key),
+		Body:        tempFile,
+		ContentType: aws.String(fileHeader),
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't forward to server", err)
 		return
 	}
 
-	videoURL := "https://" + bucketName + ".s3." + cfg.s3Region + ".amazonaws.com/" + videoFileName
+	videoURL := cfg.getObjectURL(key)
 	//pointer to  video string in video db.url
 	video.VideoURL = &videoURL
 	//update db with video url string
