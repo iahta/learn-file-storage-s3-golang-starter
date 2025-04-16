@@ -88,7 +88,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Error resetting pointer to beginning", err)
 		return
 	}
-
+	//check aspect ratio
 	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error retrieving Aspect Ratio", err)
@@ -103,12 +103,28 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		videoOrientation = "other"
 	}
 
+	//copy to new path, move moov atom to front
+	fastStartPath, err := processVideoForFastStart(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to process video for fast start", err)
+		return
+	}
+
+	fastStartFile, err := os.Open(fastStartPath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to open processed video", err)
+		return
+	}
+	defer fastStartFile.Close()
+	defer os.Remove(fastStartPath)
+
+	//convert file name to unique key, add dyanmic prefix based on orientation
 	key := getAssetPath(fileHeader)
 	key = filepath.Join(videoOrientation, key)
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Bucket:      aws.String(cfg.s3Bucket),
 		Key:         aws.String(key),
-		Body:        tempFile,
+		Body:        fastStartFile,
 		ContentType: aws.String(fileHeader),
 	})
 	if err != nil {
